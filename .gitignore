@@ -1,0 +1,7 @@
+.DS_Store
+# Claude Code local settings (machine-specific permissions)
+.claude/
+# Build artifacts (regenerate with `make`)
+bin/cordis-v4
+bin/*.o
+bin/*.hi

@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Cordis Agent — 跨进程 Supervisor Tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:      #14161F;
+    --paper:    #EDE6D6;
+    --paper-2:  #E4DBC5;
+    --rule:     #2A2C38;
+    --alive:    #2E6B44;
+    --dead:     #B0331F;
+    --signal:   #C13024;
+    --signal-2: #E24E36;
+    --blueprint:#1E4B6B;
+    --blueprint-2:#3A6E93;
+    --amber:    #C08221;
+    --amber-2:  #D9A24A;
+    --muted:    #5A5B65;
+    --hair:     #B8AF97;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter Tight', -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    padding: 56px 64px 72px;
+    max-width: 1440px;
+    margin: 0 auto;
+    background-image:
+      radial-gradient(circle at 6% 10%, rgba(30, 75, 107, 0.10) 0, transparent 42%),
+      radial-gradient(circle at 94% 90%, rgba(193, 48, 36, 0.08) 0, transparent 38%);
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* ---------- Masthead ---------- */
+  .masthead {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    border-top: 3px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 24px 0 20px;
+    margin-bottom: 40px;
+  }
+  .kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    margin-bottom: 12px;
+    display: flex; gap: 24px; align-items: center;
+  }
+  .kicker .dot {
+    width: 6px; height: 6px; background: var(--signal);
+    border-radius: 50%; display: inline-block;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: 62px;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+  }
+  h1 em {
+    font-style: italic; font-weight: 400;
+    color: var(--signal);
+  }
+  .subtitle {
+    font-family: 'Fraunces', serif;
+    font-weight: 400; font-style: italic;
+    font-size: 20px; color: var(--muted);
+    margin-top: 12px; max-width: 680px;
+  }
+  .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--muted);
+    text-align: right; line-height: 1.6;
+  }
+  .meta strong { color: var(--ink); font-weight: 500; }
+
+  /* ---------- Section labels ---------- */
+  .section-label {
+    display: flex; align-items: baseline; gap: 16px;
+    margin-bottom: 24px; padding-bottom: 8px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .section-label .num {
+    font-family: 'Fraunces', serif;
+    font-size: 44px; font-weight: 900;
+    line-height: 1; color: var(--signal);
+  }
+  .section-label h2 {
+    font-family: 'Fraunces', serif;
+    font-size: 26px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .section-label .tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* ---------- Two-layer contrast ---------- */
+  .contrast {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin-bottom: 72px;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+  }
+  .layer {
+    padding: 28px 28px 24px;
+    position: relative;
+  }
+  .layer + .layer { border-left: 1px dashed var(--rule); }
+  .layer .layer-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    padding: 3px 10px;
+    letter-spacing: 0.14em;
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+  .layer.in-proc .layer-tag { background: var(--amber); color: #fff; }
+  .layer.os-proc .layer-tag { background: var(--blueprint); color: #fff; }
+
+  .layer h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 24px; font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+  }
+  .layer h3 em { font-style: italic; color: var(--muted); }
+  .layer .oneliner {
+    font-family: 'Fraunces', serif;
+    font-size: 13px; font-style: italic;
+    color: var(--muted);
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px dotted var(--hair);
+  }
+  .layer svg { display: block; margin: 0 auto 16px; }
+  .layer .layer-feats {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; line-height: 1.75;
+    color: var(--muted);
+  }
+  .layer .layer-feats b { color: var(--ink); font-weight: 700; }
+  .layer .layer-feats .plus  { color: var(--alive); font-weight: 700; margin-right: 6px; }
+  .layer .layer-feats .arrow { color: var(--signal); font-weight: 700; margin-right: 6px; }
+  .layer .layer-feats .warn  { color: var(--dead); font-weight: 700; margin-right: 6px; }
+
+  /* ---------- Big propagation diagram ---------- */
+  .prop-block {
+    display: grid;
+    grid-template-columns: 1.45fr 1fr;
+    gap: 40px;
+    margin-bottom: 64px;
+  }
+  .prop-canvas {
+    background:
+      linear-gradient(180deg, var(--paper-2) 0%, var(--paper) 100%);
+    border: 1px solid var(--rule);
+    padding: 32px 24px 40px;
+    position: relative;
+  }
+  .canvas-label {
+    position: absolute;
+    top: 12px; right: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 0.15em;
+    color: var(--muted); text-transform: uppercase;
+  }
+
+  /* Timeline column */
+  .timeline {
+    display: flex; flex-direction: column;
+    gap: 14px;
+  }
+  .tl-step {
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    gap: 14px;
+    padding: 12px 14px;
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--signal);
+    position: relative;
+  }
+  .tl-step.info    { border-left-color: var(--blueprint); }
+  .tl-step.ok      { border-left-color: var(--alive); }
+  .tl-step.warn    { border-left-color: var(--amber); }
+  .tl-step.kill    { border-left-color: var(--dead); }
+
+  .tl-step .t {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    color: var(--signal);
+    letter-spacing: 0.02em;
+  }
+  .tl-step.info .t { color: var(--blueprint); }
+  .tl-step.ok   .t { color: var(--alive); }
+  .tl-step.warn .t { color: var(--amber); }
+  .tl-step.kill .t { color: var(--dead); }
+
+  .tl-step .body h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .tl-step .body p {
+    font-size: 12.5px; color: var(--muted);
+    line-height: 1.5;
+  }
+  .tl-step .body code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: rgba(20, 22, 31, 0.08);
+    padding: 1px 5px; color: var(--ink);
+  }
+
+  /* ---------- Failure modes ---------- */
+  .fails {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 56px;
+  }
+  .fail {
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    padding: 20px 18px;
+    position: relative;
+  }
+  .fail::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; height: 4px;
+    width: 100%;
+    background: var(--dead);
+  }
+  .fail.critical::before { background: var(--dead); }
+  .fail.mitigated::before { background: var(--amber); }
+  .fail.solved::before   { background: var(--alive); }
+  .fail-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 2px 8px;
+    background: var(--ink); color: var(--paper);
+    display: inline-block;
+    margin-bottom: 12px;
+  }
+  .fail h4 {
+    font-family: 'Fraunces', serif;
+    font-size: 17px; font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .fail .mech {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .fail .fix {
+    padding-top: 10px;
+    border-top: 1px dashed var(--hair);
+    font-size: 12.5px; color: var(--ink);
+    line-height: 1.55;
+  }
+  .fail .fix b { color: var(--signal); font-weight: 600; }
+  .fail .fix code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: rgba(20, 22, 31, 0.08);
+    padding: 1px 4px;
+  }
+
+  /* ---------- Code + syscalls table ---------- */
+  .syscalls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin-bottom: 32px;
+  }
+  .code-block {
+    background: #14161F;
+    color: #E4DBC5;
+    border: 1px solid var(--rule);
+    padding: 20px 22px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.65;
+    position: relative;
+  }
+  .code-block .cb-label {
+    position: absolute;
+    top: -10px; left: 16px;
+    background: var(--paper);
+    padding: 0 8px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--rule);
+  }
+  .code-block .k { color: #D9A24A; font-weight: 600; }
+  .code-block .s { color: #C13024; }
+  .code-block .c { color: #7A7B85; font-style: italic; }
+  .code-block .n { color: #3A6E93; }
+  .code-block .v { color: #E4DBC5; }
+
+  .syscall-table {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    padding: 4px 0;
+  }
+  .syscall-table .sh {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    padding: 10px 20px;
+    border-bottom: 1px dashed var(--hair);
+    align-items: baseline;
+  }
+  .syscall-table .sh:last-child { border-bottom: none; }
+  .syscall-table .sh code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; font-weight: 700;
+    color: var(--blueprint);
+  }
+  .syscall-table .sh p {
+    font-size: 12px; color: var(--muted);
+    line-height: 1.5;
+  }
+  .syscall-table .sh-header {
+    background: var(--ink); color: var(--paper);
+    padding: 8px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.15em;
+  }
+
+  /* ---------- Colophon ---------- */
+  .colophon {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .colophon strong { color: var(--ink); font-weight: 500; }
+
+  svg text { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: var(--ink); }
+  svg .lbl { font-family: 'Fraunces', serif; font-size: 12px; font-style: italic; fill: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ============ MASTHEAD ============ -->
+<header class="masthead">
+  <div>
+    <div class="kicker">
+      <span>Field Manual №04</span>
+      <span class="dot"></span>
+      <span>Cordis / OS-level Supervision</span>
+      <span class="dot"></span>
+      <span>Poly/ML · Posix</span>
+    </div>
+    <h1>SIGTERM 是<em>信号线</em>：<br>跨进程的 Cordis Supervisor</h1>
+    <div class="subtitle">
+      当 fork 从 scope 树跃迁到 OS 进程树，dispose 语义也换了物理层——
+      同样的 &laquo;父存在则子存在&raquo; 不变式，由内核代替语言运行时来保证。
+    </div>
+  </div>
+  <div class="meta">
+    <strong>Vol.</strong> 2026 / 09<br>
+    <strong>Rev.</strong> v4.0<br>
+    <strong>Layer</strong> POSIX<br>
+    <strong>Grace</strong> 10s
+  </div>
+</header>
+
+<!-- ============ SECTION 1: LAYER CONTRAST ============ -->
+<div class="section-label">
+  <span class="num">01</span>
+  <h2>同一语义 · 两种物理层</h2>
+  <span class="tag">scope tree ↔ process tree</span>
+</div>
+
+<section class="contrast">
+
+  <!-- ==== In-process ==== -->
+  <div class="layer in-proc">
+    <span class="layer-tag">layer &nbsp; A</span>
+    <h3>进程内 · <em>scope tree</em></h3>
+    <div class="oneliner">SML 运行时内的引用图；dispose 是函数调用。</div>
+
+    <svg width="360" height="230" viewBox="0 0 360 230">
+      <!-- root -->
+      <rect x="150" y="16" width="60" height="26" fill="#EDE6D6" stroke="#2A2C38" stroke-width="1.5"/>
+      <text x="180" y="33" text-anchor="middle" font-size="10" font-weight="700">root</text>
+      <!-- sup -->
+      <rect x="140" y="70" width="80" height="30" fill="#EDE6D6" stroke="#2E6B44" stroke-width="2"/>
+      <text x="180" y="89" text-anchor="middle" font-size="10" font-weight="700" fill="#2E6B44">supervisor</text>
+      <!-- children -->
+      <rect x="60"  y="140" width="70" height="26" fill="#EDE6D6" stroke="#2E6B44" stroke-width="1.5"/>
+      <text x="95"  y="157" text-anchor="middle" font-size="10" fill="#2E6B44">math</text>
+      <rect x="145" y="140" width="70" height="26" fill="#EDE6D6" stroke="#2E6B44" stroke-width="1.5"/>
+      <text x="180" y="157" text-anchor="middle" font-size="10" fill="#2E6B44">research</text>
+      <rect x="230" y="140" width="70" height="26" fill="#EDE6D6" stroke="#2E6B44" stroke-width="1.5"/>
+      <text x="265" y="157" text-anchor="middle" font-size="10" fill="#2E6B44">late</text>
+      <!-- lines -->
+      <line x1="180" y1="42" x2="180" y2="70" stroke="#2A2C38" stroke-width="1.4"/>
+      <line x1="180" y1="100" x2="95" y2="140" stroke="#2A2C38" stroke-width="1.4"/>
+      <line x1="180" y1="100" x2="180" y2="140" stroke="#2A2C38" stroke-width="1.4"/>
+      <line x1="180" y1="100" x2="265" y2="140" stroke="#2A2C38" stroke-width="1.4"/>
+      <!-- dispose arrow -->
+      <text x="30" y="205" font-family="Fraunces" font-size="13" font-style="italic" fill="#C08221">dispose = disposeScope()</text>
+      <line x1="30" y1="215" x2="330" y2="215" stroke="#C08221" stroke-width="1.2"/>
+    </svg>
+
+    <div class="layer-feats">
+      <span class="plus">+</span>释放 = <b>纯函数递归</b><br>
+      <span class="plus">+</span>纳秒级 · 无 IPC<br>
+      <span class="plus">+</span>类型系统兜底不变式<br>
+      <span class="warn">✕</span>SML 崩溃 = 全树蒸发<br>
+      <span class="warn">✕</span>无法承载真实工作负载的隔离
+    </div>
+  </div>
+
+  <!-- ==== Cross-process ==== -->
+  <div class="layer os-proc">
+    <span class="layer-tag">layer &nbsp; B</span>
+    <h3>跨进程 · <em>process tree</em></h3>
+    <div class="oneliner">OS 内核维护的进程组；dispose 是发信号。</div>
+
+    <svg width="360" height="230" viewBox="0 0 360 230">
+      <!-- shell -->
+      <rect x="140" y="10" width="80" height="24" fill="#EDE6D6" stroke="#1E4B6B" stroke-width="1.5" stroke-dasharray="2,2"/>
+      <text x="180" y="26" text-anchor="middle" font-size="9" fill="#1E4B6B">SHELL (pgid=S)</text>
+      <!-- Parent Cordis -->
+      <rect x="130" y="55" width="100" height="34" fill="#EDE6D6" stroke="#1E4B6B" stroke-width="2"/>
+      <text x="180" y="72" text-anchor="middle" font-size="10" font-weight="700" fill="#1E4B6B">parent PID=1000</text>
+      <text x="180" y="83" text-anchor="middle" font-size="9" fill="#1E4B6B">setpgid(0,0) → pgid=1000</text>
+      <!-- Children -->
+      <g>
+        <rect x="30"  y="130" width="80" height="30" fill="#EDE6D6" stroke="#1E4B6B" stroke-width="1.4"/>
+        <text x="70"  y="145" text-anchor="middle" font-size="10" font-weight="700" fill="#1E4B6B">math</text>
+        <text x="70"  y="156" text-anchor="middle" font-size="9" fill="#1E4B6B">PID=1001</text>
+      </g>
+      <g>
+        <rect x="140" y="130" width="80" height="30" fill="#EDE6D6" stroke="#1E4B6B" stroke-width="1.4"/>
+        <text x="180" y="145" text-anchor="middle" font-size="10" font-weight="700" fill="#1E4B6B">research</text>
+        <text x="180" y="156" text-anchor="middle" font-size="9" fill="#1E4B6B">PID=1002</text>
+      </g>
+      <g>
+        <rect x="250" y="130" width="80" height="30" fill="#EDE6D6" stroke="#1E4B6B" stroke-width="1.4"/>
+        <text x="290" y="145" text-anchor="middle" font-size="10" font-weight="700" fill="#1E4B6B">late</text>
+        <text x="290" y="156" text-anchor="middle" font-size="9" fill="#1E4B6B">PID=1003</text>
+      </g>
+      <!-- grandchild -->
+      <g>
+        <rect x="30"  y="185" width="80" height="26" fill="#EDE6D6" stroke="#3A6E93" stroke-width="1" stroke-dasharray="2,2"/>
+        <text x="70"  y="196" text-anchor="middle" font-size="9" fill="#3A6E93">tool worker</text>
+        <text x="70"  y="205" text-anchor="middle" font-size="9" fill="#3A6E93">PID=1004</text>
+      </g>
+      <!-- lines -->
+      <line x1="180" y1="34" x2="180" y2="55" stroke="#1E4B6B" stroke-width="1.4" stroke-dasharray="2,2"/>
+      <line x1="180" y1="89" x2="70"  y2="130" stroke="#1E4B6B" stroke-width="1.4"/>
+      <line x1="180" y1="89" x2="180" y2="130" stroke="#1E4B6B" stroke-width="1.4"/>
+      <line x1="180" y1="89" x2="290" y2="130" stroke="#1E4B6B" stroke-width="1.4"/>
+      <line x1="70"  y1="160" x2="70"  y2="185" stroke="#3A6E93" stroke-width="1" stroke-dasharray="2,2"/>
+      <!-- pgid bracket -->
+      <path d="M 15 60 Q 8 60 8 75 L 8 215 Q 8 222 15 222" fill="none" stroke="#C13024" stroke-width="1.4"/>
+      <text x="15" y="230" font-size="9" fill="#C13024" font-weight="700">pgid=1000</text>
+    </svg>
+
+    <div class="layer-feats">
+      <span class="plus">+</span>释放 = <b>kill(-pgid, SIGTERM)</b><br>
+      <span class="plus">+</span>崩溃隔离 · 单进程 OOM 不牵动兄弟<br>
+      <span class="plus">+</span>内核 <code>PR_SET_PDEATHSIG</code> 兜底孤儿<br>
+      <span class="arrow">↳</span>成本：fork/exec ≈ 数毫秒<br>
+      <span class="arrow">↳</span>需 <code>wait()</code> 收尸避免僵尸
+    </div>
+  </div>
+
+</section>
+
+<!-- ============ SECTION 2: BIG PROPAGATION DIAGRAM ============ -->
+<div class="section-label">
+  <span class="num">02</span>
+  <h2>SIGTERM 传播时线 · 从父进程到叶子</h2>
+  <span class="tag">grace period → SIGKILL</span>
+</div>
+
+<div class="prop-block">
+
+  <!-- ==== Big signal diagram ==== -->
+  <div class="prop-canvas">
+    <span class="canvas-label">fig. process group signal cascade</span>
+    <svg width="100%" height="580" viewBox="0 0 720 580" preserveAspectRatio="xMidYMid meet">
+
+      <defs>
+        <marker id="sig-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#C13024"/>
+        </marker>
+        <marker id="sig-dead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#B0331F"/>
+        </marker>
+        <marker id="sig-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#2A2C38"/>
+        </marker>
+      </defs>
+
+      <!-- Shell trigger -->
+      <rect x="24" y="24" width="140" height="34" fill="#EDE6D6" stroke="#2A2C38" stroke-width="1.4"/>
+      <text x="94" y="42" text-anchor="middle" font-weight="700">$ kill -TERM</text>
+      <text x="94" y="52" text-anchor="middle" font-size="9" fill="#5A5B65">shell / kubelet / systemd</text>
+
+      <!-- Ripple ring 1: SIGTERM to parent -->
+      <path d="M 164 41 L 260 41" fill="none" stroke="#C13024" stroke-width="2" marker-end="url(#sig-red)"/>
+      <text x="212" y="34" text-anchor="middle" font-size="10" fill="#C13024" font-weight="700">SIGTERM</text>
+
+      <!-- Parent -->
+      <rect x="260" y="20" width="180" height="46" fill="#EDE6D6" stroke="#B0331F" stroke-width="2.5" stroke-dasharray="4,3"/>
+      <text x="350" y="40" text-anchor="middle" font-weight="700" fill="#B0331F">parent (Cordis root)</text>
+      <text x="350" y="55" text-anchor="middle" font-size="9" fill="#B0331F">PID=1000 · pgid=1000</text>
+
+      <!-- Handler note -->
+      <text x="460" y="34" font-family="Fraunces" font-style="italic" font-size="12" fill="#5A5B65">1. handler catches SIGTERM</text>
+      <text x="460" y="49" font-family="Fraunces" font-style="italic" font-size="12" fill="#5A5B65">2. Cordis disposeScope(root)</text>
+      <text x="460" y="64" font-family="Fraunces" font-style="italic" font-size="12" fill="#5A5B65">3. kill(-1000, SIGTERM)</text>
+
+      <!-- Line parent -> broadcast bar -->
+      <line x1="350" y1="66" x2="350" y2="105" stroke="#B0331F" stroke-width="1.6"/>
+
+      <!-- Broadcast bar -->
+      <rect x="90" y="105" width="540" height="24" fill="#B0331F" opacity="0.9"/>
+      <text x="360" y="121" text-anchor="middle" fill="#EDE6D6" font-weight="700" font-size="12" letter-spacing="1">
+        kill(-pgid, SIGTERM) — one syscall, whole group
+      </text>
+
+      <!-- Signal arrows to children -->
+      <line x1="160" y1="129" x2="160" y2="175" stroke="#C13024" stroke-width="1.6" marker-end="url(#sig-red)"/>
+      <line x1="360" y1="129" x2="360" y2="175" stroke="#C13024" stroke-width="1.6" marker-end="url(#sig-red)"/>
+      <line x1="560" y1="129" x2="560" y2="175" stroke="#C13024" stroke-width="1.6" marker-end="url(#sig-red)"/>
+
+      <!-- Child boxes -->
+      <g>
+        <rect x="80" y="180" width="160" height="46" fill="#EDE6D6" stroke="#B0331F" stroke-width="2" stroke-dasharray="4,3"/>
+        <text x="160" y="200" text-anchor="middle" font-weight="700" fill="#B0331F">agent:math</text>
+        <text x="160" y="214" text-anchor="middle" font-size="9" fill="#B0331F">PID=1001 · in pgid=1000</text>
+      </g>
+      <g>
+        <rect x="280" y="180" width="160" height="46" fill="#EDE6D6" stroke="#B0331F" stroke-width="2" stroke-dasharray="4,3"/>
+        <text x="360" y="200" text-anchor="middle" font-weight="700" fill="#B0331F">agent:research</text>
+        <text x="360" y="214" text-anchor="middle" font-size="9" fill="#B0331F">PID=1002 · in pgid=1000</text>
+      </g>
+      <g>
+        <rect x="480" y="180" width="160" height="46" fill="#EDE6D6" stroke="#B0331F" stroke-width="2" stroke-dasharray="4,3"/>
+        <text x="560" y="200" text-anchor="middle" font-weight="700" fill="#B0331F">agent:late</text>
+        <text x="560" y="214" text-anchor="middle" font-size="9" fill="#B0331F">PID=1003 · in pgid=1000</text>
+      </g>
+
+      <!-- Line child -> grandchildren -->
+      <line x1="130" y1="226" x2="90"  y2="278" stroke="#C13024" stroke-width="1.4" stroke-dasharray="3,2" marker-end="url(#sig-red)"/>
+      <line x1="190" y1="226" x2="230" y2="278" stroke="#C13024" stroke-width="1.4" stroke-dasharray="3,2" marker-end="url(#sig-red)"/>
+      <line x1="360" y1="226" x2="360" y2="278" stroke="#C13024" stroke-width="1.4" stroke-dasharray="3,2" marker-end="url(#sig-red)"/>
+      <line x1="560" y1="226" x2="530" y2="278" stroke="#C13024" stroke-width="1.4" stroke-dasharray="3,2" marker-end="url(#sig-red)"/>
+
+      <!-- Grandchildren -->
+      <g>
+        <rect x="30" y="283" width="120" height="34" fill="#EDE6D6" stroke="#B0331F" stroke-width="1.4" stroke-dasharray="3,2"/>
+        <text x="90" y="298" text-anchor="middle" font-size="10" fill="#B0331F" font-weight="700">tool: calc</text>
+        <text x="90" y="309" text-anchor="middle" font-size="9" fill="#B0331F">PID=1004</text>
+      </g>
+      <g>
+        <rect x="170" y="283" width="120" height="34" fill="#EDE6D6" stroke="#B0331F" stroke-width="1.4" stroke-dasharray="3,2"/>
+        <text x="230" y="298" text-anchor="middle" font-size="10" fill="#B0331F" font-weight="700">tool: write</text>
+        <text x="230" y="309" text-anchor="middle" font-size="9" fill="#B0331F">PID=1005</text>
+      </g>
+      <g>
+        <rect x="300" y="283" width="120" height="34" fill="#EDE6D6" stroke="#B0331F" stroke-width="1.4" stroke-dasharray="3,2"/>
+        <text x="360" y="298" text-anchor="middle" font-size="10" fill="#B0331F" font-weight="700">tool: search</text>
+        <text x="360" y="309" text-anchor="middle" font-size="9" fill="#B0331F">PID=1006</text>
+      </g>
+      <g>
+        <rect x="470" y="283" width="120" height="34" fill="#EDE6D6" stroke="#B0331F" stroke-width="1.4" stroke-dasharray="3,2"/>
+        <text x="530" y="298" text-anchor="middle" font-size="10" fill="#B0331F" font-weight="700">tool: search</text>
+        <text x="530" y="309" text-anchor="middle" font-size="9" fill="#B0331F">PID=1007</text>
+      </g>
+
+      <!-- Time axis -->
+      <line x1="30" y1="360" x2="690" y2="360" stroke="#2A2C38" stroke-width="1.5"/>
+      <text x="30" y="380" font-size="9" fill="#5A5B65">t+0</text>
+      <line x1="30" y1="356" x2="30" y2="364" stroke="#2A2C38"/>
+
+      <line x1="150" y1="356" x2="150" y2="364" stroke="#2A2C38"/>
+      <text x="150" y="380" text-anchor="middle" font-size="9" fill="#5A5B65">t+50ms</text>
+
+      <line x1="330" y1="356" x2="330" y2="364" stroke="#2A2C38"/>
+      <text x="330" y="380" text-anchor="middle" font-size="9" fill="#5A5B65">t+300ms</text>
+
+      <line x1="530" y1="356" x2="530" y2="364" stroke="#2A2C38"/>
+      <text x="530" y="380" text-anchor="middle" font-size="9" fill="#5A5B65">t+2s (flush + close)</text>
+
+      <line x1="690" y1="356" x2="690" y2="364" stroke="#2A2C38"/>
+      <text x="690" y="380" text-anchor="end" font-size="9" fill="#5A5B65">t+10s: SIGKILL</text>
+
+      <!-- Grace zone bar -->
+      <rect x="30" y="342" width="660" height="4" fill="#C08221" opacity="0.5"/>
+      <rect x="620" y="342" width="70" height="4" fill="#B0331F"/>
+      <text x="360" y="336" text-anchor="middle" font-size="10" fill="#C08221" font-weight="700" letter-spacing="1">
+        GRACE PERIOD — 10s
+      </text>
+      <text x="655" y="336" text-anchor="middle" font-size="10" fill="#B0331F" font-weight="700" letter-spacing="1">HARD KILL</text>
+
+      <!-- Legend -->
+      <g transform="translate(30, 410)">
+        <rect x="0" y="0" width="18" height="10" fill="none" stroke="#B0331F" stroke-width="2"/>
+        <text x="26" y="9" font-size="10" fill="#5A5B65">SIGTERM received (graceful)</text>
+
+        <line x1="220" y1="5" x2="245" y2="5" stroke="#C13024" stroke-width="1.6"/>
+        <path d="M 245 5 L 240 2 L 240 8 z" fill="#C13024"/>
+        <text x="255" y="9" font-size="10" fill="#5A5B65">signal delivery</text>
+
+        <rect x="370" y="0" width="18" height="10" fill="#C08221" opacity="0.5"/>
+        <text x="396" y="9" font-size="10" fill="#5A5B65">grace window</text>
+
+        <rect x="520" y="0" width="18" height="10" fill="#B0331F"/>
+        <text x="546" y="9" font-size="10" fill="#5A5B65">SIGKILL (unblockable)</text>
+      </g>
+
+      <!-- Waitpid annotation -->
+      <g transform="translate(30, 450)">
+        <text x="0" y="0" font-family="Fraunces" font-style="italic" font-size="14" fill="#2E6B44">
+          reap phase — parent must waitpid() before exit
+        </text>
+        <line x1="0" y1="10" x2="360" y2="10" stroke="#2E6B44" stroke-width="1.4"/>
+        <text x="0" y="30" font-size="10.5" fill="#5A5B65">1004..1007 exit → SIGCHLD → parent waitpid() → zombie cleared</text>
+        <text x="0" y="46" font-size="10.5" fill="#5A5B65">未 wait 的进程会以 &lt;defunct&gt; 状态残留，占用 PID</text>
+      </g>
+
+      <!-- Pdeathsig annotation -->
+      <g transform="translate(400, 450)">
+        <text x="0" y="0" font-family="Fraunces" font-style="italic" font-size="14" fill="#1E4B6B">
+          fail-safe — PR_SET_PDEATHSIG
+        </text>
+        <line x1="0" y1="10" x2="280" y2="10" stroke="#1E4B6B" stroke-width="1.4"/>
+        <text x="0" y="30" font-size="10.5" fill="#5A5B65">子进程 prctl 请求：父死时收到 SIGTERM</text>
+        <text x="0" y="46" font-size="10.5" fill="#5A5B65">兜住 parent OOM / kill -9 场景，无孤儿</text>
+      </g>
+
+    </svg>
+  </div>
+
+  <!-- ==== Timeline column ==== -->
+  <div class="timeline">
+    <div class="tl-step info">
+      <div class="t">t+0</div>
+      <div class="body">
+        <h4>trigger</h4>
+        <p><code>kubectl delete</code> / <code>systemctl stop</code> / 用户 Ctrl-C 触发 <code>kill(pid, SIGTERM)</code>。</p>
+      </div>
+    </div>
+    <div class="tl-step">
+      <div class="t">+10ms</div>
+      <div class="body">
+        <h4>handler intercepts</h4>
+        <p>Cordis root 注册的 <code>Signal.setHandler SIGTERM</code> 触发；进入 dispose 流程。</p>
+      </div>
+    </div>
+    <div class="tl-step">
+      <div class="t">+50ms</div>
+      <div class="body">
+        <h4>broadcast to pgid</h4>
+        <p>root 调用 <code>kill(-pgid, SIGTERM)</code>——<b>一个系统调用</b>把信号广播给整个进程组。</p>
+      </div>
+    </div>
+    <div class="tl-step warn">
+      <div class="t">+2s</div>
+      <div class="body">
+        <h4>graceful drain</h4>
+        <p>各 agent 关闭日志、flush 数据、断开 socket；<code>disposer</code> 逆序释放外部资源。</p>
+      </div>
+    </div>
+    <div class="tl-step ok">
+      <div class="t">+3s</div>
+      <div class="body">
+        <h4>reap children</h4>
+        <p>root 在 <code>waitpid</code> 循环里逐个收尸；<code>SIGCHLD</code> 触发的僵尸进程被 <code>WNOHANG</code> 清空。</p>
+      </div>
+    </div>
+    <div class="tl-step kill">
+      <div class="t">+10s</div>
+      <div class="body">
+        <h4>hard kill</h4>
+        <p>还没退出的子进程收到 <code>SIGKILL</code>——不可屏蔽，内核直接回收；PR_SET_PDEATHSIG 兜底孤儿。</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ SECTION 3: FAILURE MATRIX ============ -->
+<div class="section-label">
+  <span class="num">03</span>
+  <h2>四种失败姿势 · 与它们的兜底</h2>
+  <span class="tag">crash · orphan · zombie · partition</span>
+</div>
+
+<section class="fails">
+
+  <div class="fail critical">
+    <span class="fail-tag">A · orphan</span>
+    <h4>父进程 OOM 突死</h4>
+    <p class="mech">
+      父进程被 OOM killer <code>SIGKILL</code>——信号处理器根本没机会跑，
+      dispose 流程未启动，子进程被内核 reparent 到 init。
+    </p>
+    <div class="fix">
+      <b>Fix.</b> 子进程 fork 后立即
+      <code>prctl(PR_SET_PDEATHSIG, SIGTERM)</code>——
+      内核在父死那一刻发信号给子，父任何死法都兜住。
+    </div>
+  </div>
+
+  <div class="fail mitigated">
+    <span class="fail-tag">B · hang</span>
+    <h4>子进程忽略 SIGTERM</h4>
+    <p class="mech">
+      业务代码卡在阻塞 IO 或死循环，SIGTERM 排队等到解阻塞——
+      grace period 期间不会退。
+    </p>
+    <div class="fix">
+      <b>Fix.</b> 内核 grace timer 到期后
+      <code>kill(-pgid, SIGKILL)</code>——SIGKILL <b>不可屏蔽</b>，
+      内核绕过用户态直接回收；有代价：数据未 flush。
+    </div>
+  </div>
+
+  <div class="fail critical">
+    <span class="fail-tag">C · zombie</span>
+    <h4>已死但未 waitpid</h4>
+    <p class="mech">
+      子进程已 exit，内核保留 PID + 退出状态直到父 wait；
+      长期不 wait → PID 表泄漏 → 系统 fork 失败。
+    </p>
+    <div class="fix">
+      <b>Fix.</b> root 循环
+      <code>waitpid(-1, WNOHANG)</code>；或让子进程被 init reparent
+      （<code>subreaper</code>），init 自动收尸。
+    </div>
+  </div>
+
+  <div class="fail solved">
+    <span class="fail-tag">D · distributed</span>
+    <h4>跨节点父子失联</h4>
+    <p class="mech">
+      Agent supervisor 在 A 节点，worker 在 B 节点；
+      A 与 B 之间网络分区，SIGTERM 送不过去。
+    </p>
+    <div class="fix">
+      <b>Fix.</b> 换成 <b>lease + heartbeat</b>——worker 定期续约，
+      超时未续则自杀。信号语义在分布式下退化为超时协议。
+    </div>
+  </div>
+
+</section>
+
+<!-- ============ SECTION 4: CODE + SYSCALLS ============ -->
+<div class="section-label">
+  <span class="num">04</span>
+  <h2>Poly/ML 的 Posix 桥接 · 落到源码</h2>
+  <span class="tag">Posix.Process · setpgid · kill</span>
+</div>
+
+<div class="syscalls">
+
+  <div class="code-block">
+    <div class="cb-label">FORK &amp; SETPGID</div>
+<pre><span class="c">(* fork a child into its own supervised group *)</span>
+<span class="k">fun</span> forkSupervised (name, exec) =
+  <span class="k">case</span> Posix.Process.fork () <span class="k">of</span>
+    <span class="n">NONE</span> =&gt;    <span class="c">(* CHILD *)</span>
+      ( Posix.ProcEnv.setpgid
+          { pid = <span class="n">NONE</span>, pgid = <span class="n">NONE</span> }
+      <span class="c">; parent death fires SIGTERM *)</span>
+      ; Posix.Process.exec
+          (exec, [<span class="s">""</span>, name]) )
+  | <span class="n">SOME</span> pid =&gt; <span class="c">(* PARENT *)</span>
+      ( Posix.ProcEnv.setpgid
+          { pid = <span class="n">SOME</span> pid,
+            pgid = <span class="n">SOME</span> (Posix.Process.getpid ()) }
+      ; recordChild (name, pid) )</pre>
+  </div>
+
+  <div class="code-block">
+    <div class="cb-label">SIGTERM HANDLER &amp; REAP</div>
+<pre><span class="c">(* on parent's SIGTERM: broadcast to group, wait *)</span>
+<span class="k">fun</span> installShutdown () =
+  Signals.setHandler
+    (Signals.sigTerm,
+     Signals.HANDLER
+       (<span class="k">fn</span> _ =&gt;
+          ( Posix.Process.kill
+              (Posix.Process.K_GROUP
+                 (Posix.Process.getpid ()),
+               Posix.Signal.term)
+          ; reapAll ()
+          ; Signals.default )))
+
+<span class="k">and</span> reapAll () =
+  <span class="k">case</span> Posix.Process.waitpid_nh
+          (Posix.Process.W_ANY_CHILD, [])
+    <span class="k">of</span> <span class="n">NONE</span> =&gt; ()
+     | <span class="n">SOME</span> _ =&gt; reapAll ()</pre>
+  </div>
+
+</div>
+
+<div class="syscall-table">
+  <div class="sh-header">SYSCALL CHEATSHEET · POSIX ↔ POLY/ML</div>
+  <div class="sh">
+    <code>fork(2)</code>
+    <p>Posix.Process.fork : unit → pid option  &nbsp;·&nbsp; NONE = 子进程，SOME pid = 父进程</p>
+  </div>
+  <div class="sh">
+    <code>setpgid(2)</code>
+    <p>Posix.ProcEnv.setpgid  &nbsp;·&nbsp; 建立独立进程组，让 kill(-pgid, ...) 一击广播</p>
+  </div>
+  <div class="sh">
+    <code>kill(-pgid, sig)</code>
+    <p>Posix.Process.kill (K_GROUP pgid, sig)  &nbsp;·&nbsp; 一次系统调用发信号给整组</p>
+  </div>
+  <div class="sh">
+    <code>waitpid(2)</code>
+    <p>Posix.Process.waitpid_nh  &nbsp;·&nbsp; WNOHANG 非阻塞收尸；避免僵尸</p>
+  </div>
+  <div class="sh">
+    <code>prctl(PDEATHSIG)</code>
+    <p>Poly/ML 无原生绑定 → 用 <code>Foreign</code> 桥接 libc  &nbsp;·&nbsp; 父死即子死</p>
+  </div>
+</div>
+
+<!-- ============ COLOPHON ============ -->
+<footer class="colophon">
+  <div>
+    Vol.04 continues Vol.03 · Set in <strong>Fraunces</strong> &amp; <strong>JetBrains Mono</strong> ·
+    Palette derived from OS control-room schematics · Verified on <strong>Poly/ML 5.7.1</strong> · Linux 6.x
+  </div>
+  <div>© 2026 · Cordis Field Manual</div>
+</footer>
+
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>

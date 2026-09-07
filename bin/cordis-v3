@@ -1,0 +1,2 @@
+#!/bin/sh
+exec poly --use /Users/wangwenchao/Downloads/cordis-project/src/cordis-agent-v3.sml "$@" < /dev/null
