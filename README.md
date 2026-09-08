@@ -124,7 +124,7 @@ Enable it with environment variables (never hardcoded):
 # The platform's auth token (this is the "authtopic" value). Falls back to
 # AUTH_TOPIC if ANTHROPIC_AUTH_TOKEN is unset.
 export ANTHROPIC_AUTH_TOKEN=<your-platform-token>
-export ANTHROPIC_BASE_URL=https://llm-api.mcisaas.com   # your endpoint base
+export ANTHROPIC_BASE_URL=https://<your-endpoint>   # your endpoint base
 export CORDIS_LLM_MODEL=claude-opus-5                     # optional model id
 make run-v3-llm                                         # CORDIS_LLM_REAL=1 set for you
 ```

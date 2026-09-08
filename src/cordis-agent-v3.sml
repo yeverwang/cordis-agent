@@ -414,7 +414,7 @@ fun scriptedNext (scriptRef : action list ref) (_ : reactState) : action =
    Auth + endpoint come from the ENVIRONMENT, never hardcoded:
      - ANTHROPIC_AUTH_TOKEN -> the platform's bearer token (the "authtopic"
                                value; falls back to AUTH_TOPIC if unset).
-     - ANTHROPIC_BASE_URL   -> e.g. https://llm-api.mcisaas.com
+     - ANTHROPIC_BASE_URL   -> e.g. https://<your-endpoint>
      - CORDIS_LLM_MODEL    -> optional model id override (default
                               "claude-opus-5")
 
