@@ -3,5 +3,6 @@
 .claude/
 # Build artifacts (regenerate with `make`)
 bin/cordis-v4
+bin/cordis-v3m
 bin/*.o
 bin/*.hi

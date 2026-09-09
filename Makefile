@@ -4,9 +4,11 @@
 # Targets:
 #   make               → build everything
 #   make v3            → build single-process supervisor tree
+#   make v3m           → build functor-typed services supervisor tree
 #   make v4            → build cross-process supervisor tree
 #   make test          → run all tests
 #   make run-v3        → run v3 demo (Phase 1..9)
+#   make run-v3m       → run v3-modular demo (Phase 0..9)
 #   make run-v4        → run v4 demo (fork+exec+SIGTERM cascade)
 #   make clean         → remove build artifacts
 #   make help          → this help
@@ -34,8 +36,8 @@ LIBPOLY_TARGET := /usr/lib/x86_64-linux-gnu/libpolyml.so.9
 
 # ---------- Default ----------
 .PHONY: all
-all: check-tools $(BIN)/cordis-v3 $(BIN)/cordis-v4
-	@echo "==> build complete. Try:  make run-v3   or   make run-v4"
+all: check-tools $(BIN)/cordis-v3 $(BIN)/cordis-v3m $(BIN)/cordis-v4
+	@echo "==> build complete. Try:  make run-v3   or   make run-v3m   or   make run-v4"
 
 # ---------- Preflight ----------
 .PHONY: check-tools
@@ -65,6 +67,16 @@ $(BIN)/cordis-v3: $(SRC)/cordis-agent-v3.sml | $(BIN)
 	  "$$(pwd)/$(SRC)/cordis-agent-v3.sml" > $(BIN)/cordis-v3
 	@chmod +x $(BIN)/cordis-v3
 
+# ---------- v3m: functor-typed services (single-process) ----------
+.PHONY: v3m
+v3m: $(BIN)/cordis-v3m
+
+$(BIN)/cordis-v3m: $(SRC)/cordis-agent-v3-modular.sml | $(BIN)
+	@echo "==> v3-modular uses --use mode. Wrapper script written."
+	@printf '#!/bin/sh\nexec $(POLY) --use %s "$$@" < /dev/null\n' \
+	  "$$(pwd)/$(SRC)/cordis-agent-v3-modular.sml" > $(BIN)/cordis-v3m
+	@chmod +x $(BIN)/cordis-v3m
+
 # ---------- v4: cross-process supervisor tree ----------
 .PHONY: v4
 v4: $(BIN)/cordis-v4
@@ -87,6 +99,10 @@ $(BIN)/cordis-v4: $(SRC)/cordis-cross-process.sml | $(BIN)
 run-v3: $(BIN)/cordis-v3
 	@$(BIN)/cordis-v3
 
+.PHONY: run-v3m
+run-v3m: $(BIN)/cordis-v3m
+	@$(BIN)/cordis-v3m
+
 # v3 driven by a real LLM gateway (auth from ANTHROPIC_AUTH_TOKEN, endpoint
 # from ANTHROPIC_BASE_URL — see section 6b in src/cordis-agent-v3.sml).
 .PHONY: run-v3-llm
@@ -94,13 +110,20 @@ run-v3-llm: $(BIN)/cordis-v3
 	@echo "==> run-v3 with real LLM (needs ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL set)"
 	@CORDIS_LLM_REAL=1 $(BIN)/cordis-v3
 
+# v3m driven by a real LLM gateway (same env contract as run-v3-llm; see
+# section 10b / 13b in src/cordis-agent-v3-modular.sml).
+.PHONY: run-v3m-llm
+run-v3m-llm: $(BIN)/cordis-v3m
+	@echo "==> run-v3m with real LLM (needs ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL set)"
+	@CORDIS_LLM_REAL=1 $(BIN)/cordis-v3m
+
 .PHONY: run-v4
 run-v4: $(BIN)/cordis-v4
 	@$(BIN)/cordis-v4
 
 # ---------- Tests ----------
 .PHONY: test
-test: test-v3 test-v4
+test: test-v3 test-v3m test-v4
 	@echo ""
 	@echo "==> all tests passed"
 
@@ -111,6 +134,14 @@ test-v3: $(BIN)/cordis-v3
 	@$(BIN)/cordis-v3 > /tmp/cordis-v3.log 2>&1 || \
 	  { echo "  FAIL: v3 crashed"; cat /tmp/cordis-v3.log; exit 1; }
 	@sh $(TESTS)/test-v3.sh /tmp/cordis-v3.log
+
+.PHONY: test-v3m
+test-v3m: $(BIN)/cordis-v3m
+	@echo ""
+	@echo "==> test-v3m: functor-typed service invariants"
+	@$(BIN)/cordis-v3m > /tmp/cordis-v3m.log 2>&1 || \
+	  { echo "  FAIL: v3m crashed"; cat /tmp/cordis-v3m.log; exit 1; }
+	@sh $(TESTS)/test-v3m.sh /tmp/cordis-v3m.log
 
 .PHONY: test-v4
 test-v4: $(BIN)/cordis-v4
@@ -131,20 +162,25 @@ example-hung: $(BIN)/cordis-v4
 clean:
 	@rm -rf $(BIN)
 	@rm -f $(SRC)/*.o
-	@rm -f /tmp/cordis-v3.log /tmp/cordis-v4.log /tmp/cordis-v4-build.log
+	@rm -f /tmp/cordis-v3.log /tmp/cordis-v3m.log /tmp/cordis-v4.log /tmp/cordis-v4-build.log
 	@echo "==> cleaned"
 
 .PHONY: help
 help:
 	@echo "Cordis Agent — build targets:"
-	@echo "  make             build v3 wrapper + v4 native binary"
+	@echo "  make             build v3 wrapper + v3m wrapper + v4 native binary"
 	@echo "  make v3          build v3 REPL wrapper only"
+	@echo "  make v3m         build v3-modular (functor-typed) REPL wrapper only"
 	@echo "  make v4          build v4 native binary only"
 	@echo "  make run-v3      run v3 demo (scripted)"
+	@echo "  make run-v3m     run v3-modular demo (scripted)"
 	@echo "  make run-v3-llm  run v3 driven by a real LLM gateway (see README)"
+	@echo "  make run-v3m-llm run v3-modular driven by a real LLM gateway (see README)"
 	@echo "  make run-v4      run v4 demo"
 	@echo "  make test        run all assertion-based tests"
 	@echo "  make test-v3     v3 tests only"
+	@echo "  make test-v3m    v3-modular tests only"
 	@echo "  make test-v4     v4 tests only"
 	@echo "  make example-hung  SIGKILL fallback demo"
 	@echo "  make clean       remove artifacts"
+

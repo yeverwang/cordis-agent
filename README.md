@@ -14,9 +14,11 @@ cordis-project/
 ├── README.md                       # this file
 ├── src/
 │   ├── cordis-agent-v3.sml         # v3: in-process supervisor tree (450 LoC)
+│   ├── cordis-agent-v3-modular.sml # v3m: functor-typed services (~700 LoC)
 │   └── cordis-cross-process.sml    # v4: cross-process supervisor  (~250 LoC)
 ├── tests/
 │   ├── test-v3.sh                  # assertions over v3's log output
+│   ├── test-v3m.sh                 # assertions over v3m's log output
 │   └── test-v4.sh                  # assertions over v4's log output
 └── examples/
     └── hung-worker.sh              # SIGKILL fallback demonstration
@@ -26,7 +28,7 @@ Everything is:
 
 - **Zero third-party dependency** — only the SML basis and POSIX
 - **Single file per binary** — no build system tricks, no ML preprocessor
-- **Verified against 32+ invariants** (see `tests/`)
+- **Verified against 74+ invariants** (see `tests/`)
 
 ---
 
@@ -43,6 +45,7 @@ make
 
 # 3. See it work
 make run-v3        # 9 phases, 125 log lines, in-process cascade
+make run-v3m       # v3 with functor-typed services (same 9 phases)
 make run-v4        # fork+exec 3 workers, broadcast SIGTERM, reap
 
 # 4. Run tests
@@ -146,6 +149,52 @@ set, `llmEnabled` stays off and the original scripted demo runs unchanged
 
 ---
 
+## v3m — Functor-typed services
+
+`src/cordis-agent-v3-modular.sml` is the same supervisor tree with a
+**type-safe service layer**. Where v3 smuggles every service through one
+global `(string, exn)` table and a per-service `exception Box of t`
+(downcast — the compiler can't catch a `Calc`/`Search` mix-up), v3m
+replaces it with a generative functor:
+
+```sml
+functor MakeService (S : SERVICE) : sig
+  type t = S.t
+  val provide   : t -> (unit -> unit)      (* returns a retract fn *)
+  val get       : unit -> t option
+  val use       : unit -> t                (* raises when absent  *)
+  val subscribe : (unit -> unit) -> unit
+end
+```
+
+Each application (`Logger`, `Calc`, `Search`, `Write`) is a **fresh
+module** with its own private `t option ref` and subscriber list, so
+`Logger.provide` expects `{ info : string -> unit }` while `Calc.provide`
+expects `{ invoke : string -> int }` — handing one to the other is a
+**compile-time error**, not a silent no-op. The string-based dispatch
+that is genuinely dynamic (ReAct's `LoadTool "calc"`, chosen by the LLM
+at run time) stays at the **agent** layer; it is only the service layer
+that becomes typed.
+
+Everything else — scope tree, cascade dispose, fork, supervisor,
+workers, scripts — is identical to v3 by design, so `make test` sees the
+same observable behaviour (28 v3m assertions, including a negative check
+that no slot mix-up is accepted at runtime).
+
+The real-LLM driver is wired in the same way as v3 (sections 10b / 13b):
+
+```bash
+export ANTHROPIC_AUTH_TOKEN=<your-platform-token>
+export ANTHROPIC_BASE_URL=https://<your-endpoint>
+make run-v3m-llm   # CORDIS_LLM_REAL=1 set for you
+```
+
+`make run-v3m` (scripted default) and `make run-v3m-llm` share one
+binary and one environment contract, so switching the supervisor from a
+pre-scripted plan to a live model requires changing not a line of code.
+
+---
+
 ## v4 — Cross-process supervisor tree
 
 Same semantics, but every "agent" is now a real OS process.
@@ -212,8 +261,8 @@ default is 30s. Change per your workload's flush requirements.
 
 ## Tests
 
-`make test` runs both v3 and v4 through their demos and greps the log
-output for 32+ invariants:
+`make test` runs v3, v3m and v4 through their demos and greps the log
+output for 74+ invariants:
 
 ### v3 (29 assertions)
 - 4 forks succeeded (math, research, slow, late)
@@ -221,6 +270,13 @@ output for 32+ invariants:
 - Math computed 7*8=56
 - Partial dispose: slow dies, siblings survive
 - Cascade dispose: all children dead, logger survives
+- No uncaught exceptions
+
+### v3m (28 assertions)
+- Type ledger printed (compile-time separation)
+- Logger / calc / search / write slots provided via typed modules
+- Same behavioural invariants as v3 (forks, cascade, partial dispose)
+- Each typed slot retracted and empty after the supervisor cascade
 - No uncaught exceptions
 
 ### v4 (17 assertions)
